@@ -2,11 +2,17 @@
 #include <fstream>
 //#include <vector>
 #include "Z80.h"
-//include "screen.h"
+//#include "gameboy.pro"
+#include "screen.h"
 
 // Global ROM array - Will be loaded from a file
-unsigned char* rom; // Use unsigned char* for binary data
+unsigned char* rom  = nullptr; // Use unsigned char* for binary data
 int romSize = 0;
+
+unsigned char graphicsRAM[8192];
+int palette[4];
+int tileset, tilemap, scrollx, scrolly;
+
 
 // Memory access functions
 unsigned char memoryRead(int address) {
@@ -20,19 +26,81 @@ void memoryWrite(int address, unsigned char b) {
     // For this project, writing to ROM is not handled
 }
 
-int main() {
+void renderScreen() {
+    for (int y = 0; y < 144; y++) {
+        for (int x = 0; x < 160; x++) {
+            // Apply scroll
+            int scrolledX = (x + scrollx) & 255;
+            int scrolledY = (y + scrolly) & 255;
+
+            // Determine tile coordinates
+            int tileX = scrolledX / 8;
+            int tileY = scrolledY / 8;
+
+            // Find tile's position in the tile map
+            int tilePosition = tileY * 32 + tileX;
+
+            // Get the tile index from the appropriate tile map
+            int tileIndex = (tilemap == 0) ? graphicsRAM[0x1800 + tilePosition] : graphicsRAM[0x1c00 + tilePosition];
+
+            // Address calculation differs for tileset 0
+            int tileAddress = (tileset == 1) ? tileIndex * 16 : (tileIndex >= 128 ? tileIndex - 256 : tileIndex) * 16 + 0x1000;
+
+            // Get the pixel within the tile
+            int xoffset = scrolledX % 8;
+            int yoffset = scrolledY % 8;
+
+            // Retrieve the color bytes for the tile row
+            unsigned char row0 = graphicsRAM[tileAddress + (yoffset * 2)];
+            unsigned char row1 = graphicsRAM[tileAddress + (yoffset * 2) + 1];
+
+            // Extract the color bits for the specific pixel
+            int colorBit0 = (row0 >> (7 - xoffset)) & 1;
+            int colorBit1 = (row1 >> (7 - xoffset)) & 1;
+
+            // Combine the color bits to get the color index
+            int colorIndex = (colorBit1 << 1) | colorBit0;
+
+            // Map the color index to the actual color using the palette
+            int color = palette[colorIndex];
+
+            // Update the screen with the calculated color
+            updateSquare(x, y, color);
+        }
+    }
+
+    // Refresh the screen after all updates are done
+    onFrame();
+}
+
+extern QApplication* app;
+
+int main(int argc, char** argv) {
+
+    setup(argc,argv);
+
+    //part 1 code here
     // Load ROM from file
-    std::ifstream romfile("testrom.gb", std::ios::in | std::ios::binary | std::ios::ate);
+    std::ifstream romfile("/Users/tylerpetitti/Desktop/gameboy/testrom.gb", std::ios::binary);
+
     if (!romfile.is_open()) {
         std::cerr << "Failed to open ROM file." << std::endl;
         return 1;
     }
-    std::streampos size = romfile.tellg();
-    rom = new unsigned char[size]; // Allocate memory for the ROM
-    romSize = size;
-
+    // Get the size of the ROM file
+    romfile.seekg(0, std::ios::end);
+    romSize = romfile.tellg();
     romfile.seekg(0, std::ios::beg);
-    romfile.read(reinterpret_cast<char*>(rom), size); // Cast to char* for read function
+
+    // Allocate memory for the ROM
+    rom = new unsigned char[romSize];
+    if (!rom) {
+        std::cerr << "Failed to allocate memory for ROM." << std::endl;
+        return 1;
+    }
+
+    // Read the ROM file into memory
+    romfile.read(reinterpret_cast<char*>(rom), romSize);
     romfile.close();
 
     // Initialize the Z80 CPU with memory access functions
@@ -50,6 +118,36 @@ int main() {
     // Output the final value in register A (expected: 21)
     std::cout << "Final A: " << (int)z80->A << std::endl;
 
+    //part 2
+
+
+    std::ifstream vidfile("/Users/tylerpetitti/Desktop/gameboy/screendump.txt",std::ios::in);
+    if (!vidfile.is_open()) {
+        std::cerr << "Unable to open screendump.txt" << std::endl;
+        return 1;
+    }
+    for(int i=0; i<8192; i++){
+        int n;
+        vidfile>>n;
+        graphicsRAM[i]=(unsigned char)n;
+    }
+
+    // Then read the other variables:
+
+    vidfile >> tileset;
+    vidfile >> tilemap;
+    vidfile >> scrollx;
+    vidfile >> scrolly;
+    vidfile >> palette[0];
+    vidfile >> palette[1];
+    vidfile >> palette[2];
+    vidfile >> palette[3];
+
+    // Now that graphicsRAM and other variables are initialized, call renderScreen
+    renderScreen();
+
+    // Enter the Qt application loop
+    return app->exec();
 
     return 0;
 }
