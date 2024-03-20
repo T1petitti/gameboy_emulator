@@ -8,7 +8,6 @@
 // Global ROM array - Will be loaded from a file
 unsigned char* rom  = nullptr; // Use unsigned char* for binary data
 int romSize = 0;
-
 unsigned char graphicsRAM[8192];
 int palette[4];
 int tileset, tilemap, scrollx, scrolly;
@@ -74,11 +73,9 @@ void renderScreen() {
 }
 
 extern QApplication* app;
-
 int main(int argc, char** argv) {
 
     setup(argc,argv);
-
     //part 1 code here
     // Load ROM from file
     std::ifstream romfile("/Users/tylerpetitti/Desktop/gameboy/testrom.gb", std::ios::binary);
@@ -122,6 +119,7 @@ int main(int argc, char** argv) {
 
 
     std::ifstream vidfile("/Users/tylerpetitti/Desktop/gameboy/screendump.txt",std::ios::in);
+
     if (!vidfile.is_open()) {
         std::cerr << "Unable to open screendump.txt" << std::endl;
         return 1;
@@ -148,6 +146,5 @@ int main(int argc, char** argv) {
 
     // Enter the Qt application loop
     return app->exec();
-
-    return 0;
 }
+ 
