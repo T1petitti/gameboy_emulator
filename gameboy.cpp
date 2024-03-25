@@ -5,8 +5,6 @@
 //#include "gameboy.pro"
 #include "screen.h"
 
-#include <chrono>
-#include <thread>
 
 
 // Global ROM array - Will be loaded from a file
@@ -24,14 +22,7 @@ int gpuMode=HBLANK;
 int romOffset = 0x4000;
 long totalInstructions=0;
 
-bool keyAPressed = false;
-bool keyBPressed = false;
-bool keyLeftPressed = false;
-bool keyUpPressed = false;
-bool keyRightPressed = false;
-bool keyDownPressed = false;
-bool keyStartPressed = false;
-bool keySelectPressed = false;
+unsigned char rows[2] = {0x0F, 0x0F};
 
 const int A = 65;
 const int B = 66;
@@ -45,43 +36,18 @@ const int SPACE = 32; // Define SPACE as the scan code for the 'space' key
 unsigned char getKey() {
     unsigned char result = 0xF; // Initialize with all bits set (all keys released)
 
-    //std::cout << "column = " << keyboardColumn << std::endl;
-    //std::cout << "dir = " << direction << std::endl;
-    //std::cout << "but = " << button << std::endl;
+    //std::cout << "Row 0: " << std::hex << (int)rows[0] << std::endl;
+    //std::cout << "Row 1: " << std::hex << (int)rows[1] << std::endl;
 
-    if (keyboardColumn & 0x10) {
-        //std::cout << "direction" << std::endl;
-        if (keyRightPressed) {
-            result &= ~(1 << 0); // Clear bit 0 (Right key pressed)
-        }
-        if (keyLeftPressed) {
-            result &= ~(1 << 1); // Clear bit 1 (Left key pressed)
-        }
-        if (keyUpPressed) {
-            result &= ~(1 << 2); // Clear bit 2 (Up key pressed)
-        }
-        if (keyDownPressed) {
-            result &= ~(1 << 3); // Clear bit 3 (Down key pressed)
-        }
-    }
-    if (keyboardColumn & 0x20) {
-        //std::cout << "buttons" << std::endl;
-        if (keyAPressed) {
-            result &= ~(1 << 0); // Clear bit 4 (A key pressed)
-        }
-        if (keyBPressed) {
-            result &= ~(1 << 1); // Clear bit 5 (B key pressed)
-        }
-        if (keyStartPressed) {
-            result &= ~(1 << 2); // Clear bit 6 (Start key pressed)
-        }
-        if (keySelectPressed) {
-            result &= ~(1 << 3); // Clear bit 7 (Select key pressed)
-        }
-    }
-    //std::cout << "result = " << (int)result << std::endl;
-    return result;
+    //std::cout << "Key value: " << std::hex << key_value << std::endl;
+    std::cout << "Key value: " << std::hex << (int)keyboardColumn << std::endl;
 
+    switch(keyboardColumn){
+    case 0x10: return rows[1]; //buttons
+    case 0x20: return rows[0]; //direction
+    case 0x30: return result;
+    default: return result;
+    }
 }
 
 
@@ -179,8 +145,9 @@ void memoryWrite(int address, unsigned char b) {
         page0RAM[address % 0x80] = b;
     }
     if (address == 0xFF00) {
-        keyboardColumn = b;
-        std::cout << "keyboardColumn = " << keyboardColumn << std::endl;
+        //std::cout << "b = " << (int)b << std::endl;
+        keyboardColumn = b & 0x30;
+        //std::cout << "keyboardColumn = " << keyboardColumn << std::endl;
     }
     if (address == 0xFF40) {
         setControlByte(b);
@@ -209,77 +176,70 @@ void memoryWrite(int address, unsigned char b) {
 
 void keydown(int scanCode) {
     switch (scanCode) {
-    case A:
-        keyAPressed = true;
-        keyboardColumn = 32;
-        std::cout << "A key pressed" << std::endl;
-        break;
-    case B:
-        keyBPressed = true;
-        keyboardColumn = 32;
-        std::cout << "B key pressed" << std::endl;
+    case RIGHT:
+        //keyboardColumn = 0x20;
+        rows[0] &= 0xE; // Clear bit 0 of row 0
         break;
     case LEFT:
-        keyLeftPressed = true;
-        keyboardColumn = 16;
-        std::cout << "Left key pressed" << std::endl;
+        //keyboardColumn = 0x20;
+        rows[0] &= 0xD; // Clear bit 1 of row 0
         break;
     case UP:
-        keyUpPressed = true;
-        keyboardColumn = 16;
-        std::cout << "Up key pressed" << std::endl;
-        break;
-    case RIGHT:
-        keyRightPressed = true;
-        keyboardColumn = 16;
-        std::cout << "Right key pressed" << std::endl;
+      //  keyboardColumn = 0x20;
+        rows[0] &= 0xB; // Clear bit 2 of row 0
         break;
     case DOWN:
-        keyDownPressed = true;
-        keyboardColumn = 16;
-        std::cout << "Down key pressed" << std::endl;
+     //   keyboardColumn = 0x20;
+        rows[0] &= 0x7; // Clear bit 3 of row 0
+        break;
+    case A:
+      //  keyboardColumn = 0x10;
+        rows[1] &= 0xE; // Clear bit 0 of row 1
+        break;
+    case B:
+     //   keyboardColumn = 0x10;
+        rows[1] &= 0xD; // Clear bit 1 of row 1
         break;
     case ENTER:
-        keyStartPressed = true;
-        keyboardColumn = 32;
-        std::cout << "Start key pressed" << std::endl;
+      //  keyboardColumn = 0x10;
+        rows[1] &= 0xB; // Clear bit 2 of row 1
         break;
     case SPACE:
-        keySelectPressed = true;
-        keyboardColumn = 32;
-        std::cout << "Select key pressed" << std::endl;
+     //   keyboardColumn = 0x10;
+        rows[1] &= 0x7; // Clear bit 3 of row 1
         break;
     }
 }
 
 void keyup(int scanCode) {
     switch (scanCode) {
-    case A:
-        keyAPressed = false;
-        break;
-    case B:
-        keyBPressed = false;
+    case RIGHT:
+        rows[0] |= 0x1; // Set bit 0 of row 0
         break;
     case LEFT:
-        keyLeftPressed = false;
+        rows[0] |= 0x2; // Set bit 1 of row 0
         break;
     case UP:
-        keyUpPressed = false;
-        break;
-    case RIGHT:
-        keyRightPressed = false;
+        rows[0] |= 0x4; // Set bit 2 of row 0
         break;
     case DOWN:
-        keyDownPressed = false;
+        rows[0] |= 0x8; // Set bit 3 of row 0
+        break;
+    case A:
+        rows[1] |= 0x1; // Set bit 0 of row 1
+        break;
+    case B:
+        rows[1] |= 0x2; // Set bit 1 of row 1
         break;
     case ENTER:
-        keyStartPressed = false;
+        rows[1] |= 0x4; // Set bit 2 of row 1
         break;
     case SPACE:
-        keySelectPressed = false;
+        rows[1] |= 0x8; // Set bit 3 of row 1
         break;
     }
 }
+
 
 
 void renderScreen() {
@@ -369,30 +329,8 @@ int main(int argc, char** argv) {
         if (z80->halted) break;
         z80->doInstruction();
 
-        if (keyAPressed) {
-            //z80->throwInterrupt(); // Assuming interrupt 3 is for the left key
-        }
-        if (keyBPressed) {
-            //z80->throwInterrupt(); // Assuming interrupt 4 is for the up key
-        }
-        if (keyLeftPressed) {
-            //z80->throwInterrupt(); // Assuming interrupt 3 is for the left key
-        }
-        if (keyUpPressed) {
-            //z80->throwInterrupt(); // Assuming interrupt 4 is for the up key
-        }
-        if (keyRightPressed) {
-            //z80->throwInterrupt(); // Assuming interrupt 5 is for the right key
-        }
-        if (keyDownPressed) {
-            //z80->throwInterrupt(); // Assuming interrupt 6 is for the down key
-        }
-        if (keyStartPressed) {
-            //z80->throwInterrupt(); // Assuming interrupt 6 is for the down key
-        }
-        if (keySelectPressed) {
-            //z80->throwInterrupt(); // Assuming interrupt 6 is for the down key
-        }
+        //std::cout << "Keyboard Column: " << std::hex << (int)keyboardColumn << std::endl;
+        //0, 20, 10, 30
 
         // Check for and handle interrupts
         if (z80->interrupt_deferred > 0) {
