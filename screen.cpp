@@ -83,11 +83,16 @@ ScreenView::ScreenView(QGraphicsScene *scene, QWidget* parent):QGraphicsView(sce
 
 void ScreenView::keyPressEvent(QKeyEvent* event)
 {
-    //	keydown(event->nativeScanCode());
+    int scanCode = event->key();
+    qDebug() << "Key pressed. Scan code:" << scanCode;
+    keydown(scanCode);
 }
+
 void ScreenView::keyReleaseEvent(QKeyEvent* event)
 {
-    //	keyup(event->nativeScanCode());
+    int scanCode = event->key();
+    qDebug() << "Key released. Scan code:" << scanCode;
+    keyup(scanCode);
 }
 
 int setup(int argc, char** argv)
