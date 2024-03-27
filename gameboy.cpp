@@ -4,12 +4,12 @@
 #include "Z80.h"
 //#include "gameboy.pro"
 #include "screen.h"
+#include <string>
 
 
 
 // Global ROM array - Will be loaded from a file
 unsigned char* rom  = nullptr; // Use unsigned char* for binary data
-int romSize = 0;
 unsigned char graphicsRAM[8192];
 int palette[4];
 int tileset, tilemap, scrollx, scrolly;
@@ -19,10 +19,19 @@ unsigned char workingRAM[0x2000];
 unsigned char page0RAM[0x80];
 int line=0, cmpline=0, videostate=0, keyboardColumn=0, horizontal=0;
 int gpuMode=HBLANK;
-int romOffset = 0x4000;
 long totalInstructions=0;
 
 unsigned char rows[2] = {0x0F, 0x0F};
+
+unsigned char* eram = nullptr; // Use unsigned char* for binary data
+
+int carttype;
+int romSize = 0;
+int ramSize = 0; // Size of the external RAM
+
+int rombank = 0, rambank = 0, ramon = 0, mode = 0;
+int romoffs = 0x4000;
+int ramoffs = 0x0;
 
 const int A = 65;
 const int B = 66;
@@ -33,14 +42,77 @@ const int RIGHT = 16777236; // Define RIGHT as the scan code for the 'right' key
 const int ENTER = 16777220; // Define ENTER as the scan code for the 'enter' key
 const int SPACE = 32; // Define SPACE as the scan code for the 'space' key
 
+unsigned char OAM[160]; // Object Attribute Memory
+unsigned char objdata[0];
+int y = 0; // Initialize y
+unsigned char backgroundBuffer[160][144]; // Background buffer
+
+void loadROM(const char* filename) {
+    // Open the ROM file
+    std::ifstream romfile(filename, std::ios::binary);
+    if (!romfile.is_open()) {
+        std::cerr << "Failed to open ROM file." << std::endl;
+        return;
+    }
+
+    // Get the size of the ROM file
+    romfile.seekg(0, std::ios::end);
+    int romSize = romfile.tellg();
+    romfile.seekg(0, std::ios::beg);
+
+    // Allocate memory for the ROM
+    rom = new unsigned char[romSize];
+    if (!rom) {
+        std::cerr << "Failed to allocate memory for ROM." << std::endl;
+        return;
+    }
+
+    // Read the ROM file into memory
+    romfile.read(reinterpret_cast<char*>(rom), romSize);
+    romfile.close();
+
+    std::cout << "ROM loaded successfully." << std::endl;
+}
+
+// Function to free ROM memory
+void freeROM() {
+    if (rom) {
+        delete[] rom;
+        rom = nullptr;
+        std::cout << "ROM memory freed." << std::endl;
+    }
+}
+
+// Function to load external RAM from file
+int loadERAM(int ramSize) {
+
+    // Allocate memory for the RAM
+    eram = new unsigned char[ramSize];
+    if (!eram) {
+        std::cerr << "Failed to allocate memory for External RAM." << std::endl;
+        return 1;
+    }
+
+    std::cout << "ERAM loaded successfully." << std::endl;
+    return 0;
+}
+
+// Function to free ERAM memory
+void freeERAM() {
+    if (eram) {
+        delete[] eram;
+        eram = nullptr;
+        std::cout << "ERAM memory freed." << std::endl;
+    }
+}
+
 unsigned char getKey() {
     unsigned char result = 0xF; // Initialize with all bits set (all keys released)
 
     //std::cout << "Row 0: " << std::hex << (int)rows[0] << std::endl;
     //std::cout << "Row 1: " << std::hex << (int)rows[1] << std::endl;
 
-    //std::cout << "Key value: " << std::hex << key_value << std::endl;
-    std::cout << "Key value: " << std::hex << (int)keyboardColumn << std::endl;
+    //std::cout << "Key value: " << std::hex << (int)keyboardColumn << std::endl;
 
     switch(keyboardColumn){
     case 0x10: return rows[1]; //buttons
@@ -50,12 +122,8 @@ unsigned char getKey() {
     }
 }
 
-
-void setRomMode(int address, unsigned char b) { }
-
 void setControlByte(unsigned char b) {
     tilemap=(b&8)!=0?1:0;
-
     tileset=(b&16)!=0?1:0;
 }
 
@@ -87,16 +155,21 @@ unsigned char memoryRead(int address) {
         return rom[address];
     }
     if (address >= 0x4000 && address <= 0x7FFF) {
-        return rom[romOffset+address%0x4000] ;
+        return rom[romoffs + (address & 0x3FFF)];
     }
     if (address >= 0x8000 && address <= 0x9FFF) {
-        return graphicsRAM[address%0x2000];
+        return graphicsRAM[address & 0x1FFF];
+    }
+    if (address >= 0xA000 && address <= 0xBFFF) {
+        //std::cout << "Reading from external RAM at address: " << address << std::endl;
+        //std::cout << "RAM offset: " << ramoffs << std::endl;
+        return eram[ramoffs + (address & 0x1FFF)];
     }
     if (address >= 0xC000 && address <= 0xDFFF) {
-        return workingRAM[address%0x2000];
+        return workingRAM[address & 0x1FFF];
     }
-    if (address >= 0xFF80 && address <= 0xFFFF) {
-        return page0RAM[address % 0x80];
+    if (address == 0xFE00) {
+        return (address < 0xFEA0) ? OAM[address & 0xFF] : 0;
     }
     if (address == 0xFF00) {
         int keyState = getKey();
@@ -124,25 +197,73 @@ unsigned char memoryRead(int address) {
     if (address == 0xFF47) {
         return 0;
     }
+    if (address >= 0xFF80 && address <= 0xFFFF) {
+        return page0RAM[address & 0x7F];
+    }
     else {
         return 0;
     }
 }
 
 void memoryWrite(int address, unsigned char b) {
-    if (address >= 0 && address <=0x3FFF) {
-        setRomMode(address,b);
+    if (address >= 0x0000 && address <= 0x1FFF) {
+        if ((carttype == 2) || (carttype == 3))
+        {
+            ramon = ((b & 0x0F) == 0x0A) ? 1 : 0;
+            //std::cout << "RAM enable set to: " << ramon << std::endl;
+        }
+
     }
-    if (address >= 0x4000 && address <= 0x7FFF) {
+    if (address >= 0x2000 && address <= 0x3FFF) {
+        if ((carttype == 1) || (carttype == 2) || (carttype == 3)) {
+            //std::cout << "b: " << (int)b << std::endl;
+            b &= 0x1F;
+            if (!b) {
+                b = 1;  // Bank 0 is always mapped to the first 16 KB
+            }
+            rombank = (rombank & 0x60) + b;
+            romoffs = rombank * (0x4000);
+            //std::cout << "ROM Bank set: " << rombank << ", ROM Offset: " << romoffs << std::endl;
+        }
+    }
+    if (address >= 0x4000 && address <= 0x5FFF) {
+        if ((carttype == 1) || (carttype == 2) || (carttype == 3)) {
+            if (mode == 1) {
+                // Handle RAM banking
+                rambank = b & 3;
+                ramoffs = rambank * (0x2000);
+                //std::cout << "RAM Bank set: " << rambank << ", RAM Offset: " << ramoffs << std::endl;
+            } else {
+                // Handle ROM banking
+                rombank = (rombank & 0x1F) + ((b & 3) << 5);
+                romoffs = rombank * (0x4000);
+                //std::cout << "ROM Bank set: " << rombank << ", ROM Offset: " << romoffs << std::endl;
+            }
+        }
+    }
+
+    if (address >= 0x6000 && address <= 0x7FFF) {
+        if ((carttype == 2) || (carttype == 3))
+        {
+            // Handle explicit mode changes through game logic
+            mode = b & 1;
+            //std::cout << "Mode set to: " << mode << std::endl;
+        }
     }
     if (address >= 0x8000 && address <= 0x9FFF) {
-        graphicsRAM[address%0x2000] = b;
+        graphicsRAM[address & 0x1FFF] = b;
+    }
+    if (address >= 0xA000 && address <= 0xBFFF) {
+        eram[ramoffs + (address & 0x1FFF)] = b;
+        //std::cout << "Writing to external RAM at address: " << address << std::endl;
+        //std::cout << "Value written: " << (int)b << std::endl;
+        //std::cout << "RAM offset: " << ramoffs << std::endl;
     }
     if (address >= 0xC000 && address <= 0xDFFF) {
-        workingRAM[address%0x2000] = b;
+        workingRAM[address & 0x1FFF] = b;
     }
-    if (address >= 0xFF80 && address <= 0xFFFF) {
-        page0RAM[address % 0x80] = b;
+    if (address >= 0xFE00 && address <= 0xFEA0) {
+        //OAM[address & 0xFF] = b;
     }
     if (address == 0xFF00) {
         //std::cout << "b = " << (int)b << std::endl;
@@ -170,42 +291,38 @@ void memoryWrite(int address, unsigned char b) {
     if (address == 0xFF47) {
         setPalette(b);
     }
+    if (address >= 0xFF80 && address <= 0xFFFF) {
+        page0RAM[address & 0x7F] = b;
+    }
     else {
     }
 }
 
+
 void keydown(int scanCode) {
     switch (scanCode) {
     case RIGHT:
-        //keyboardColumn = 0x20;
         rows[0] &= 0xE; // Clear bit 0 of row 0
         break;
     case LEFT:
-        //keyboardColumn = 0x20;
         rows[0] &= 0xD; // Clear bit 1 of row 0
         break;
     case UP:
-      //  keyboardColumn = 0x20;
         rows[0] &= 0xB; // Clear bit 2 of row 0
         break;
     case DOWN:
-     //   keyboardColumn = 0x20;
         rows[0] &= 0x7; // Clear bit 3 of row 0
         break;
     case A:
-      //  keyboardColumn = 0x10;
         rows[1] &= 0xE; // Clear bit 0 of row 1
         break;
     case B:
-     //   keyboardColumn = 0x10;
         rows[1] &= 0xD; // Clear bit 1 of row 1
         break;
     case ENTER:
-      //  keyboardColumn = 0x10;
         rows[1] &= 0xB; // Clear bit 2 of row 1
         break;
     case SPACE:
-     //   keyboardColumn = 0x10;
         rows[1] &= 0x7; // Clear bit 3 of row 1
         break;
     }
@@ -282,9 +399,9 @@ void renderScreen() {
 
             // Update the screen with the calculated color
             updateSquare(x, y, color);
+
         }
     }
-
     // Refresh the screen after all updates are done
     onFrame();
 }
@@ -293,44 +410,70 @@ extern QApplication* app;
 int main(int argc, char** argv) {
 
     setup(argc,argv);
-    //part 1 code here
-    // Load ROM from file
-    std::ifstream romfile("/Users/tylerpetitti/Desktop/gameboy/tetris.gb", std::ios::binary);
 
-    if (!romfile.is_open()) {
-        std::cerr << "Failed to open ROM file." << std::endl;
-        return 1;
+    const char* romFilePath = "/Users/tylerpetitti/Desktop/gameboy/opus5.gb";
+
+    // Free ROM and ERAM
+    freeROM();
+    freeERAM();
+
+    // Load ROM
+    loadROM(romFilePath);
+
+    carttype = rom[0x0147];
+    std::cout << "carttype = " << carttype << std::endl;
+
+    romSize = (32 * 1024) << rom[0x0148];
+    std::cout << "romSize = " << romSize << std::endl;
+
+    ramSize = rom[0x0149];
+    switch(ramSize){
+    case 0:
+        ramSize = 0x0;
+        break;
+    case 1:
+        ramSize = 0x800;
+        break;
+    case 2:
+        ramSize = 0x2000;
+        break;
+    case 3:
+        ramSize = 0x8000;
+        break;
+    case 4:
+        ramSize = 0x20000;
+        break;
+    case 5:
+        ramSize = 0x10000;
+        break;
     }
-    // Get the size of the ROM file
-    romfile.seekg(0, std::ios::end);
-    romSize = romfile.tellg();
-    romfile.seekg(0, std::ios::beg);
+    std::cout << "ramSize = " << ramSize << std::endl;
 
-    // Allocate memory for the ROM
-    rom = new unsigned char[romSize];
-    if (!rom) {
-        std::cerr << "Failed to allocate memory for ROM." << std::endl;
-        return 1;
+    if ((carttype == 1) || (carttype == 2) || (carttype == 3)) {
+        mode = 0; // Initialize to ROM banking mode
+    } else {
+        mode = 1; // Initialize to RAM banking mode
     }
+    std::cout << "mode = " << mode << std::endl;
 
-    // Read the ROM file into memory
-    romfile.read(reinterpret_cast<char*>(rom), romSize);
-    romfile.close();
+
+    // Load ERAM
+    loadERAM(ramSize);
 
     // Initialize the Z80 CPU with memory access functions
     Z80* z80 = new Z80(memoryRead, memoryWrite);
 
+
     // Reset the CPU
     z80->reset();
+
 
     // Execute instructions until the CPU halts
     while (true) {
         // If not halted, do an instruction
         if (z80->halted) break;
         z80->doInstruction();
-
-        //std::cout << "Keyboard Column: " << std::hex << (int)keyboardColumn << std::endl;
-        //0, 20, 10, 30
+        std::cout << "Instruction: " << z80->instruction << std::endl;
 
         // Check for and handle interrupts
         if (z80->interrupt_deferred > 0) {
@@ -341,7 +484,6 @@ int main(int argc, char** argv) {
             }
         }
         z80->checkForInterrupts();
-
 
         // Figure out screen position and set the video mode
         horizontal = (int)((totalInstructions + 1) % 61);
