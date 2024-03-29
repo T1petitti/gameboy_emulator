@@ -10,13 +10,13 @@
 
 // Global ROM array - Will be loaded from a file
 unsigned char* rom  = nullptr; // Use unsigned char* for binary data
-unsigned char graphicsRAM[8192];
+unsigned char graphicsRAM[0x2000];
 int palette[4];
 int tileset, tilemap, scrollx, scrolly;
 
 int HBLANK=0, VBLANK=1, SPRITE=2, VRAM=3;
 unsigned char workingRAM[0x2000];
-unsigned char page0RAM[0x80];
+unsigned char page0RAM[127];
 int line=0, cmpline=0, videostate=0, keyboardColumn=0, horizontal=0;
 int gpuMode=HBLANK;
 long totalInstructions=0;
@@ -33,6 +33,9 @@ int rombank = 0, rambank = 0, ramon = 0, mode = 0;
 int romoffs = 0x4000;
 int ramoffs = 0x0;
 
+unsigned char interruptEnable = 0;
+unsigned char interruptFlag = 0;
+
 const int A = 65;
 const int B = 66;
 const int UP = 16777235; // Define UP as the scan code for the 'up' key
@@ -41,11 +44,6 @@ const int LEFT = 16777234; // Define LEFT as the scan code for the 'left' key
 const int RIGHT = 16777236; // Define RIGHT as the scan code for the 'right' key
 const int ENTER = 16777220; // Define ENTER as the scan code for the 'enter' key
 const int SPACE = 32; // Define SPACE as the scan code for the 'space' key
-
-unsigned char OAM[160]; // Object Attribute Memory
-unsigned char objdata[0];
-int y = 0; // Initialize y
-unsigned char backgroundBuffer[160][144]; // Background buffer
 
 void loadROM(const char* filename) {
     // Open the ROM file
@@ -151,30 +149,38 @@ unsigned char getVideoState() {
 
 // Memory access functions
 unsigned char memoryRead(int address) {
+    //std::cout << "Reading from address: " << address << std::endl;
     if (address >= 0 && address <=0x3FFF) {
+        //std::cout << "Reading from ROM at address: " << address << std::endl;
         return rom[address];
     }
     if (address >= 0x4000 && address <= 0x7FFF) {
+        //std::cout << "Reading from ROM banked at address: " << (romoffs + (address & 0x3FFF)) << std::endl;
         return rom[romoffs + (address & 0x3FFF)];
     }
     if (address >= 0x8000 && address <= 0x9FFF) {
+        //std::cout << "Reading from graphics RAM at address: " << (address & 0x1FFF) << std::endl;
         return graphicsRAM[address & 0x1FFF];
     }
     if (address >= 0xA000 && address <= 0xBFFF) {
-        //std::cout << "Reading from external RAM at address: " << address << std::endl;
-        //std::cout << "RAM offset: " << ramoffs << std::endl;
+        //std::cout << "Reading from external RAM at address: " << (ramoffs + (address & 0x1FFF)) << std::endl;
+        if (ramon){
         return eram[ramoffs + (address & 0x1FFF)];
+        }
     }
-    if (address >= 0xC000 && address <= 0xDFFF) {
+    if (address >= 0xC000 && address <= 0xEFFF) {
+        //std::cout << "Reading from working RAM at address: " << (address & 0x1FFF) << std::endl;
         return workingRAM[address & 0x1FFF];
     }
-    if (address == 0xFE00) {
-        return (address < 0xFEA0) ? OAM[address & 0xFF] : 0;
+    if (address >= 0xF000 && address <= 0xFDFF) {
+        //std::cout << "Reading from working RAM at address: " << (address & 0x1FFF) << std::endl;
+        return workingRAM[address & 0x1FFF];
     }
-    if (address == 0xFF00) {
-        int keyState = getKey();
-        //std::cout << "Key state: " << keyState << std::endl;
-        return keyState;
+    //if (address == 0xFE00) {
+        //return (address < 0xFEA0) ? OAM[address & 0xFF] : 0;
+    //}
+    if (address == 0xFF0F) {
+        return (interruptFlag | 0xE0) ;
     }
     if (address == 0xFF40) {
         return 0;
@@ -197,8 +203,17 @@ unsigned char memoryRead(int address) {
     if (address == 0xFF47) {
         return 0;
     }
-    if (address >= 0xFF80 && address <= 0xFFFF) {
+    if (address == 0xFF00) {
+        int keyState = getKey();
+        //std::cout << "Key state: " << keyState << std::endl;
+        return keyState;
+    }
+    if (address >= 0xFF80 && address <= 0xFFFE) {
+        //std::cout << "Reading from zero RAM at address: " << (address & 0x7F) << std::endl;
         return page0RAM[address & 0x7F];
+    }
+    if (address == 0xFFFF) {
+        return interruptEnable;
     }
     else {
         return 0;
@@ -206,36 +221,40 @@ unsigned char memoryRead(int address) {
 }
 
 void memoryWrite(int address, unsigned char b) {
+    //std::cout << "Writing " << (int)b << " from address: " << std::hex << address << std::endl;
     if (address >= 0x0000 && address <= 0x1FFF) {
         if ((carttype == 2) || (carttype == 3))
         {
             ramon = ((b & 0x0F) == 0x0A) ? 1 : 0;
             //std::cout << "RAM enable set to: " << ramon << std::endl;
         }
-
     }
     if (address >= 0x2000 && address <= 0x3FFF) {
-        if ((carttype == 1) || (carttype == 2) || (carttype == 3)) {
+        if ((carttype ==1) || (carttype == 2) || (carttype == 3))
+        {
             //std::cout << "b: " << (int)b << std::endl;
+            rombank &= 0x60;
             b &= 0x1F;
             if (!b) {
                 b = 1;  // Bank 0 is always mapped to the first 16 KB
             }
-            rombank = (rombank & 0x60) + b;
+            rombank |= b;
             romoffs = rombank * (0x4000);
             //std::cout << "ROM Bank set: " << rombank << ", ROM Offset: " << romoffs << std::endl;
         }
     }
     if (address >= 0x4000 && address <= 0x5FFF) {
-        if ((carttype == 1) || (carttype == 2) || (carttype == 3)) {
-            if (mode == 1) {
+        if ((carttype ==1) || (carttype == 2) || (carttype == 3))
+        {
+            if (mode) {
                 // Handle RAM banking
-                rambank = b & 3;
+                rambank = (b & 3);
                 ramoffs = rambank * (0x2000);
                 //std::cout << "RAM Bank set: " << rambank << ", RAM Offset: " << ramoffs << std::endl;
             } else {
                 // Handle ROM banking
-                rombank = (rombank & 0x1F) + ((b & 3) << 5);
+                rombank &= 0x1F;
+                rombank = rombank |= ((b & 3) << 5);
                 romoffs = rombank * (0x4000);
                 //std::cout << "ROM Bank set: " << rombank << ", ROM Offset: " << romoffs << std::endl;
             }
@@ -251,24 +270,30 @@ void memoryWrite(int address, unsigned char b) {
         }
     }
     if (address >= 0x8000 && address <= 0x9FFF) {
+        //std::cout << "Writing to graphics RAM at address: " << (address & 0x1FF) << std::endl;
         graphicsRAM[address & 0x1FFF] = b;
     }
     if (address >= 0xA000 && address <= 0xBFFF) {
+        //std::cout << "Writing to external RAM at address: " << (address & 0x1FFF) << std::endl;
+        if (ramon){
         eram[ramoffs + (address & 0x1FFF)] = b;
+        }
         //std::cout << "Writing to external RAM at address: " << address << std::endl;
         //std::cout << "Value written: " << (int)b << std::endl;
         //std::cout << "RAM offset: " << ramoffs << std::endl;
     }
-    if (address >= 0xC000 && address <= 0xDFFF) {
+    if (address >= 0xC000 && address <= 0xEFFF) {
+        //std::cout << "Writing to working RAM at address: " << (address & 0x1FFF) << std::endl;
         workingRAM[address & 0x1FFF] = b;
     }
-    if (address >= 0xFE00 && address <= 0xFEA0) {
-        //OAM[address & 0xFF] = b;
+    if (address >= 0xF000 && address <= 0xFDFF) {
+        //std::cout << "Reading from working RAM at address: " << (address & 0x1FFF) << std::endl;
+        workingRAM[address & 0x1FFF] = b;
     }
-    if (address == 0xFF00) {
-        //std::cout << "b = " << (int)b << std::endl;
-        keyboardColumn = b & 0x30;
-        //std::cout << "keyboardColumn = " << keyboardColumn << std::endl;
+
+    if (address == 0xFF0F) {
+        //std::cout << "interruptFlag =  " << (int)b << std::endl;
+        interruptFlag = b;
     }
     if (address == 0xFF40) {
         setControlByte(b);
@@ -291,10 +316,22 @@ void memoryWrite(int address, unsigned char b) {
     if (address == 0xFF47) {
         setPalette(b);
     }
-    if (address >= 0xFF80 && address <= 0xFFFF) {
+    if (address == 0xFF00) {
+        //std::cout << "b = " << (int)b << std::endl;
+        keyboardColumn = b & 0x30;
+        //std::cout << "keyboardColumn = " << keyboardColumn << std::endl;
+    }
+    if (address >= 0xFF80 && address <= 0xFFFE) {
+        //std::cout << "Writing " << (int)b << " from address: " << (address & 0x7F) << std::endl;
         page0RAM[address & 0x7F] = b;
     }
+    if (address == 0xFFFF) {
+        //std::cout << "interruptEnable =  " << (int)b << std::endl;
+        interruptEnable = b;
+    }
     else {
+        //std::cout << "Writing " << (int)b << " from address: " << (address & 0x7F) << std::endl;
+        //page0RAM[address & 0x7F] = b;
     }
 }
 
@@ -411,7 +448,7 @@ int main(int argc, char** argv) {
 
     setup(argc,argv);
 
-    const char* romFilePath = "/Users/tylerpetitti/Desktop/gameboy/opus5.gb";
+    const char* romFilePath = "/Users/tylerpetitti/Desktop/gameboy/mario.gb";
 
     // Free ROM and ERAM
     freeROM();
@@ -456,7 +493,6 @@ int main(int argc, char** argv) {
     }
     std::cout << "mode = " << mode << std::endl;
 
-
     // Load ERAM
     loadERAM(ramSize);
 
@@ -473,7 +509,14 @@ int main(int argc, char** argv) {
         // If not halted, do an instruction
         if (z80->halted) break;
         z80->doInstruction();
-        std::cout << "Instruction: " << z80->instruction << std::endl;
+        //std::cout << "Fla: " << z80->instruction << std::endl;
+
+        //z80->interrupts = (interruptEnable);
+        //z80->interrupt_deferred = (interruptEnable);
+        //std::cout << "oh no = " << (int)(interruptFlag) << std::endl;
+
+        //if (interruptEnable && interruptFlag ){
+            //std::cout << "ENABLE = " << (int)(interruptEnable) << std::endl;       // }
 
         // Check for and handle interrupts
         if (z80->interrupt_deferred > 0) {
@@ -483,6 +526,17 @@ int main(int argc, char** argv) {
                 z80->FLAG_I = 1;
             }
         }
+
+
+        //z80->IE = interruptEnable;
+        //z80->IF = interruptFlag;
+        if (interruptFlag) z80->FLAG_I = 1;
+
+        //std::cout << "gb.IE: " << (int)interruptEnable << std::endl;
+        //std::cout << "gb.interrupts: " << (int)interruptFlag << std::endl;
+        //std::cout << "FLAG_I?: " << (z80->FLAG_I) << std::endl;
+        //std::cout << "int_defer?: " << (z80->interrupt_deferred) << std::endl;
+
         z80->checkForInterrupts();
 
         // Figure out screen position and set the video mode

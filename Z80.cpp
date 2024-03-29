@@ -1,4 +1,7 @@
 #include "Z80.h"
+#include <iostream>
+
+
 
 	Z80::Z80(unsigned char(*read)(int),void(*write)(int,unsigned char))
 	{
@@ -10,6 +13,7 @@
 	void Z80::reset()
 	{
 		interrupts=0;
+        IF=0; IE=0;
 		interrupt_deferred=0;
 		PC=0x100;
 		A=1; B=0; C=0x13; D=0; E=0xd8; H=1; L=0x4d; SP=0xfffe;
@@ -1187,9 +1191,10 @@
 	
 	void Z80::handleInterrupt(int address)
 	{
+        FLAG_I=0;
 		push(PC);
 		PC=address;
-		halted=FALSE;
+        halted=FALSE;
 	}
 	
 	void Z80::throwInterrupt(int line)
@@ -1200,38 +1205,56 @@
 	
 	void Z80::checkForInterrupts()
 	{
-		if(FLAG_I==0 || interrupt_deferred>0) return;
-		
-		int interruptToHandle=memory_read(0xffff)&interrupts;
-		if(interruptToHandle!=0)
-		{
-			if((interruptToHandle&1)!=0)
-			{
-				interrupts&=0xfe;
-				handleInterrupt(0x40);
-			}
-			else if((interruptToHandle&2)!=0)
-			{
-				interrupts&=0xfd;
-				handleInterrupt(0x48);
-			}
-			else if((interruptToHandle&4)!=0)
-			{
-				interrupts&=0xfb;
-				handleInterrupt(0x50);
-			}
-			else if((interruptToHandle&8)!=0)
-			{
-				interrupts&=0xf7;
-				handleInterrupt(0x58);
-			}
-			else if((interruptToHandle&0x10)!=0)
-			{
-				interrupts&=0xef;
-				handleInterrupt(0x60);
-			}
-		}
-	}
+        if(FLAG_I==0 || interrupt_deferred > 0) return;
+            //halted=FALSE; FLAG_I = 0;
+        //std::cout << "IE =  " << IE << std::endl;
+        //std::cout << "IF =  " << IF << std::endl;
+        halted = FALSE;
+        IE = memory_read(0xFFFF);
+        IF = memory_read(0xFF0F);
+        int interruptToHandle = (IE) & (IF);
+
+        if (interruptToHandle){
+        std::cout << "int_to_handle =  " << (interruptToHandle)  << " FLAG = " << FLAG_I << std::endl;
+
+            if((interruptToHandle&1)!=0)
+            {
+                IF&=0xfe;
+                std::cout << "Vblank: int =  " << (IF) << std::endl;
+                handleInterrupt(0x40);
+                memory_write(0xFF0F,IF);
+            }
+            else if((interruptToHandle&2)!=0)
+            {
+                IF&=0xfd;
+                std::cout << "LCD: int =  " << (IF) << std::endl;
+                handleInterrupt(0x48);
+                memory_write(0xFF0F,IF);
+            }
+            else if((interruptToHandle&4)!=0)
+            {
+                IF&=0xfb;
+                std::cout << "Timer: int =  " << (interrupts) << std::endl;
+                handleInterrupt(0x50);
+                memory_write(0xFF0F,IF);
+            }
+            else if((interruptToHandle&8)!=0)
+            {
+                IF&=0xf7;
+                std::cout << "Serial: int =  " << (interrupts) << std::endl;
+                handleInterrupt(0x58);
+                memory_write(0xFF0F,IF);
+            }
+            else if((interruptToHandle&0x10)!=0)
+            {
+                IF&=0xef;
+                std::cout << "Joypad: int =  " << (interrupts) << std::endl;
+                handleInterrupt(0x60);
+                memory_write(0xFF0F,IF);
+            }
+        }
+        else {FLAG_I = 1;}
+    }
 	
 	unsigned char Z80::fetch()
 	{
