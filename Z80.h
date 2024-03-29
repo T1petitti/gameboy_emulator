@@ -5,7 +5,7 @@ class Z80
 public:
 	int A, B, C, D, E, H, L, SP, PC;
 	int FLAG_C, FLAG_N, FLAG_P, FLAG_H, FLAG_Z, FLAG_S;
-	int FLAG_I, interrupt_deferred, interrupts;
+    int FLAG_I, interrupt_deferred, interrupts, IE, IF;
 	int FLAGS;
 	bool halted;
 	
