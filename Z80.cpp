@@ -1200,7 +1200,7 @@
 	void Z80::throwInterrupt(int line)
 	{
 		if((memory_read(0xffff)&line)!=0)
-			interrupts|=line;
+            IF|=line;
 	}
 	
 	void Z80::checkForInterrupts()
@@ -1209,13 +1209,18 @@
             //halted=FALSE; FLAG_I = 0;
         //std::cout << "IE =  " << IE << std::endl;
         //std::cout << "IF =  " << IF << std::endl;
-        halted = FALSE;
-        IE = memory_read(0xFFFF);
-        IF = memory_read(0xFF0F);
-        int interruptToHandle = (IE) & (IF);
 
-        if (interruptToHandle){
-        std::cout << "int_to_handle =  " << (interruptToHandle)  << " FLAG = " << FLAG_I << std::endl;
+        halted = FALSE;
+
+        IE = memory_read(0xFFFF);
+        //IF = memory_read(0xFF0F);
+
+        if (FLAG_I && IE && IF){
+
+            //halted = FALSE;
+
+            int interruptToHandle = (IE) & (IF);
+            std::cout << "int_to_handle =  " << (interruptToHandle)  << " FLAG = " << FLAG_I << std::endl;
 
             if((interruptToHandle&1)!=0)
             {
@@ -1234,26 +1239,26 @@
             else if((interruptToHandle&4)!=0)
             {
                 IF&=0xfb;
-                std::cout << "Timer: int =  " << (interrupts) << std::endl;
+                std::cout << "Timer: int =  " << (IF) << std::endl;
                 handleInterrupt(0x50);
                 memory_write(0xFF0F,IF);
             }
             else if((interruptToHandle&8)!=0)
             {
                 IF&=0xf7;
-                std::cout << "Serial: int =  " << (interrupts) << std::endl;
+                std::cout << "Serial: int =  " << (IF) << std::endl;
                 handleInterrupt(0x58);
                 memory_write(0xFF0F,IF);
             }
             else if((interruptToHandle&0x10)!=0)
             {
                 IF&=0xef;
-                std::cout << "Joypad: int =  " << (interrupts) << std::endl;
+                std::cout << "Joypad: int =  " << (IF) << std::endl;
                 handleInterrupt(0x60);
                 memory_write(0xFF0F,IF);
             }
         }
-        else {FLAG_I = 1;}
+        //else {FLAG_I = 1;}
     }
 	
 	unsigned char Z80::fetch()

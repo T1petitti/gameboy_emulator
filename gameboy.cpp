@@ -112,6 +112,8 @@ unsigned char getKey() {
 
     //std::cout << "Key value: " << std::hex << (int)keyboardColumn << std::endl;
 
+    if(interruptFlag) interruptFlag = 0x10;
+
     switch(keyboardColumn){
     case 0x10: return rows[1]; //buttons
     case 0x20: return rows[0]; //direction
@@ -180,7 +182,7 @@ unsigned char memoryRead(int address) {
         //return (address < 0xFEA0) ? OAM[address & 0xFF] : 0;
     //}
     if (address == 0xFF0F) {
-        return (interruptFlag | 0xE0) ;
+        return (interruptFlag) ;
     }
     if (address == 0xFF40) {
         return 0;
@@ -290,7 +292,11 @@ void memoryWrite(int address, unsigned char b) {
         //std::cout << "Reading from working RAM at address: " << (address & 0x1FFF) << std::endl;
         workingRAM[address & 0x1FFF] = b;
     }
-
+    if (address == 0xFF00) {
+        //std::cout << "b = " << (int)b << std::endl;
+        keyboardColumn = b & 0x30;
+        //std::cout << "keyboardColumn = " << keyboardColumn << std::endl;
+    }
     if (address == 0xFF0F) {
         //std::cout << "interruptFlag =  " << (int)b << std::endl;
         interruptFlag = b;
@@ -316,15 +322,13 @@ void memoryWrite(int address, unsigned char b) {
     if (address == 0xFF47) {
         setPalette(b);
     }
-    if (address == 0xFF00) {
-        //std::cout << "b = " << (int)b << std::endl;
-        keyboardColumn = b & 0x30;
-        //std::cout << "keyboardColumn = " << keyboardColumn << std::endl;
-    }
     if (address >= 0xFF80 && address <= 0xFFFE) {
         //std::cout << "Writing " << (int)b << " from address: " << (address & 0x7F) << std::endl;
         page0RAM[address & 0x7F] = b;
     }
+    //if (address == 0xFFA6) {
+        //if (b < 10) b = 10;
+    //}
     if (address == 0xFFFF) {
         //std::cout << "interruptEnable =  " << (int)b << std::endl;
         interruptEnable = b;
@@ -529,8 +533,8 @@ int main(int argc, char** argv) {
 
 
         //z80->IE = interruptEnable;
-        //z80->IF = interruptFlag;
-        if (interruptFlag) z80->FLAG_I = 1;
+        z80->IF = interruptFlag;
+        //if (interruptFlag) z80->FLAG_I = 1;
 
         //std::cout << "gb.IE: " << (int)interruptEnable << std::endl;
         //std::cout << "gb.interrupts: " << (int)interruptFlag << std::endl;
